@@ -1,3 +1,31 @@
+#define SECP256K1_GX0 0x16F81798
+#define SECP256K1_GX1 0x59F2815B
+#define SECP256K1_GX2 0x2DCE28D9
+#define SECP256K1_GX3 0x029BFCDB
+#define SECP256K1_GX4 0xCE870B07
+#define SECP256K1_GX5 0x55A06295
+#define SECP256K1_GX6 0xF9DCBBAC
+#define SECP256K1_GX7 0x79BE667E
+
+#define SECP256K1_GY0 0xFB10D4B8
+#define SECP256K1_GY1 0x9C47D08F
+#define SECP256K1_GY2 0xA6855419
+#define SECP256K1_GY3 0xFD17B448
+#define SECP256K1_GY4 0x0E1108A8
+#define SECP256K1_GY5 0x5DA4FBFC
+#define SECP256K1_GY6 0x26A3C465
+#define SECP256K1_GY7 0x483ADA77
+
+#define SECP256K1_P0 0xFFFFFC2F
+#define SECP256K1_P1 0xFFFFFFFE
+#define SECP256K1_P2 0xFFFFFFFF
+#define SECP256K1_P3 0xFFFFFFFF
+#define SECP256K1_P4 0xFFFFFFFF
+#define SECP256K1_P5 0xFFFFFFFF
+#define SECP256K1_P6 0xFFFFFFFF
+#define SECP256K1_P7 0xFFFFFFFF
+
+#include "secp256k1.h"
 #include <iostream>
 #include <string>
 #include <cuda_runtime.h>
@@ -429,98 +457,6 @@ __device__ void point_add_xy(u32 *x1, u32 *y1, u32 *z1) {
     }
     if (t2_zero && t3_zero) {
         point_double(x1, y1, z1);
-        return;
-    }
-
-    // t1 = z1 * t2
-    mul_mod(t1, z1, t2);
-
-    // t4 = t2^2
-    square_mod(t4, t2);
-
-    // t2 = t2 * t4 (t2^3)
-    mul_mod(t2, t2, t4);
-
-    // t4 = x1 * t4
-    mul_mod(t4, x1, t4);
-
-    // x1 = t3^2 - (t2 + 2 * t4)
-    square_mod(x1, t3);
-    add_mod(t2, t2, t4);
-    add_mod(t2, t2, t4);
-    sub_mod(x1, x1, t2);
-
-    // t2 = t4 - x1
-    sub_mod(t2, t4, x1);
-
-    // t2 = t3 * t2
-    mul_mod(t2, t3, t2);
-
-    // y1 = t2 - t4 * t3
-    mul_mod(t4, t4, t3);
-    sub_mod(y1, t2, t4);
-
-    // z1 = t1
-    for (int i = 0; i < 8; i++) {
-        z1[i] = t1[i];
-    }
-
-    if (threadIdx.x == 0) {
-        printf("point_add_xy: Result x1[0] = %u, y1[0] = %u, z1[0] = %u\n", x1[0], y1[0], z1[0]);
-    }
-}
-
-__device__ void point_add_xy(u32 *x1, u32 *y1, u32 *z1) {
-    const u32 x2[8] = { SECP256K1_GX0, SECP256K1_GX1, SECP256K1_GX2, SECP256K1_GX3, SECP256K1_GX4, SECP256K1_GX5, SECP256K1_GX6, SECP256K1_GX7 };
-    const u32 y2[8] = { SECP256K1_GY0, SECP256K1_GY1, SECP256K1_GY2, SECP256K1_GY3, SECP256K1_GY4, SECP256K1_GY5, SECP256K1_GY6, SECP256K1_GY7 };
-    u32 t1[8], t2[8], t3[8], t4[8];
-
-    // Если z1 = 0, копируем базовую точку (x2, y2)
-    bool z1_zero = true;
-    for (int i = 0; i < 8; i++) {
-        if (z1[i]) z1_zero = false;
-    }
-    if (z1_zero) {
-        for (int i = 0; i < 8; i++) {
-            x1[i] = x2[i];
-            y1[i] = y2[i];
-            z1[i] = 1;
-        }
-        if (threadIdx.x == 0) {
-            printf("point_add_xy: z1 was zero, set to G, x1[0] = %u, y1[0] = %u\n", x1[0], y1[0]);
-        }
-        return;
-    }
-
-    // t1 = z1^2
-    square_mod(t1, z1);
-
-    // t2 = x2 * z1^2
-    mul_mod(t2, x2, t1);
-
-    // t1 = z1 * t1 (z1^3)
-    mul_mod(t1, t1, z1);
-
-    // t3 = y2 * z1^3
-    mul_mod(t3, y2, t1);
-
-    // t2 = t2 - x1
-    sub_mod(t2, t2, x1);
-
-    // t3 = t3 - y1
-    sub_mod(t3, t3, y1);
-
-    // Если t2 = 0 и t3 = 0, точка удваивается
-    bool t2_zero = true, t3_zero = true;
-    for (int i = 0; i < 8; i++) {
-        if (t2[i]) t2_zero = false;
-        if (t3[i]) t3_zero = false;
-    }
-    if (t2_zero && t3_zero) {
-        point_double(x1, y1, z1);
-        if (threadIdx.x == 0) {
-            printf("point_add_xy: Points equal, doubled, x1[0] = %u, y1[0] = %u\n", x1[0], y1[0]);
-        }
         return;
     }
 
