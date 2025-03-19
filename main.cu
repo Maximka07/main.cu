@@ -216,10 +216,7 @@ __device__ void square_mod(u32 *r, const u32 *a) {
 }
 
 __device__ void inverse_mod(u32 *r, const u32 *a) {
-    const u32 p[8] = {
-        SECP256K1_P0, SECP256K1_P1, SECP256K1_P2, SECP256K1_P3,
-        SECP256K1_P4, SECP256K1_P5, SECP256K1_P6, SECP256K1_P7
-    };
+    const u32 p[8] = { SECP256K1_P0, SECP256K1_P1, SECP256K1_P2, SECP256K1_P3, SECP256K1_P4, SECP256K1_P5, SECP256K1_P6, SECP256K1_P7 };
     u32 u[8], v[8], s[8], t[8];
     for (int i = 0; i < 8; i++) {
         u[i] = a[i];
@@ -227,17 +224,14 @@ __device__ void inverse_mod(u32 *r, const u32 *a) {
         s[i] = (i == 0) ? 1 : 0;
         t[i] = 0;
     }
-
+    int iteration = 0;
     if (threadIdx.x == 0) {
         printf("inverse_mod: Start with u[0] = %u, v[0] = %u\n", u[0], v[0]);
     }
-
-    int iteration = 0;
     while (true) {
-        if (threadIdx.x == 0 && iteration % 10 == 0) {
+        if (threadIdx.x == 0 && iteration % 100 == 0) {
             printf("inverse_mod: Iteration %d, u[0] = %u, v[0] = %u\n", iteration, u[0], v[0]);
         }
-
         while (!(u[0] & 1)) {
             for (int i = 0; i < 7; i++) u[i] = (u[i] >> 1) | (u[i + 1] << 31);
             u[7] >>= 1;
@@ -252,8 +246,6 @@ __device__ void inverse_mod(u32 *r, const u32 *a) {
             for (int i = 0; i < 7; i++) t[i] = (t[i] >> 1) | (t[i + 1] << 31);
             t[7] >>= 1;
         }
-
-        // Проверка на ноль
         bool u_zero = true, v_zero = true;
         for (int i = 0; i < 8; i++) {
             if (u[i]) u_zero = false;
@@ -273,24 +265,20 @@ __device__ void inverse_mod(u32 *r, const u32 *a) {
             for (int i = 0; i < 8; i++) r[i] = s[i];
             return;
         }
-
-        // Сравнение u и v
         int cmp = 0;
         for (int i = 7; i >= 0; i--) {
             if (u[i] > v[i]) { cmp = 1; break; }
             if (u[i] < v[i]) { cmp = -1; break; }
         }
-
-        if (cmp >= 0) { // u >= v
+        if (cmp >= 0) {
             sub_mod(u, u, v);
             sub_mod(s, s, t);
-        } else { // u < v
+        } else {
             sub_mod(v, v, u);
             sub_mod(t, t, s);
         }
-
         iteration++;
-        if (iteration > 10000) { // Защита от бесконечного цикла
+        if (iteration > 10000) {
             if (threadIdx.x == 0) {
                 printf("inverse_mod: Too many iterations, aborting\n");
             }
@@ -334,77 +322,43 @@ __device__ int convert_to_window_naf(u32 *naf, const u32 *k) {
 }
 
 __device__ void point_double(u32 *x1, u32 *y1, u32 *z1) {
-    u32 t1[8], t2[8], t3[8];
-    
+    u32 lambda[8], t[8], x[8], y[8], z[8];
+    for (int i = 0; i < 8; i++) {
+        x[i] = x1[i];
+        y[i] = y1[i];
+        z[i] = z1[i];
+    }
     if (threadIdx.x == 0) {
         printf("point_double: Start with x1[0] = %u, y1[0] = %u, z1[0] = %u\n", x1[0], y1[0], z1[0]);
     }
-    
-    // Проверка на нулевые значения
-    bool x1_zero = true, y1_zero = true, z1_zero = true;
-    for (int i = 0; i < 8; i++) {
-        if (x1[i]) x1_zero = false;
-        if (y1[i]) y1_zero = false;
-        if (z1[i]) z1_zero = false;
-    }
-    if (x1_zero || y1_zero || z1_zero) {
-        if (threadIdx.x == 0) {
-            printf("point_double: Detected zero input (x1_zero=%d, y1_zero=%d, z1_zero=%d), aborting\n", x1_zero, y1_zero, z1_zero);
-        }
-        return;
-    }
-    
-    // 1. t1 = 3 * x1^2
+    square_mod(t, z);
     if (threadIdx.x == 0) {
-        printf("point_double: Before square_mod for t1\n");
+        printf("point_double: After square_mod(t, z), t[0] = %u\n", t[0]);
     }
-    square_mod(t1, x1);
+    sub_mod(t, x, t);
+    add_mod(t, t, x);
+    square_mod(lambda, x);
+    add_mod(lambda, lambda, lambda);
+    add_mod(lambda, lambda, lambda);
+    add(t, t, t);
     if (threadIdx.x == 0) {
-        printf("point_double: After square_mod for t1, t1[0] = %u\n", t1[0]);
+        printf("point_double: Before inverse_mod, t[0] = %u\n", t[0]);
     }
-    u32 three[8] = {3, 0, 0, 0, 0, 0, 0, 0};
-    mul_mod(t1, t1, three);
+    inverse_mod(t, t);
     if (threadIdx.x == 0) {
-        printf("point_double: After t1 = 3 * x1^2, t1[0] = %u\n", t1[0]);
+        printf("point_double: After inverse_mod, t[0] = %u\n", t[0]);
     }
-    
-    // 2. t2 = y1^2
-    square_mod(t2, y1);
+    mul_mod(lambda, lambda, t);
+    square_mod(t, lambda);
+    sub_mod(t, t, x);
+    sub_mod(x1, t, x);
+    sub_mod(t, x, x1);
+    mul_mod(t, lambda, t);
+    sub_mod(y1, t, y);
+    mul_mod(z1, y, z);
+    add(z1, z1, z1);
     if (threadIdx.x == 0) {
-        printf("point_double: After t2 = y1^2, t2[0] = %u\n", t2[0]);
-    }
-    
-    // 3. t3 = z1^2
-    square_mod(t3, z1);
-    if (threadIdx.x == 0) {
-        printf("point_double: After t3 = z1^2, t3[0] = %u\n", t3[0]);
-    }
-    
-    // 4. Update x1 = t1^2 - 2 * x1 * t2
-    square_mod(x1, t1);
-    mul_mod(t2, x1, t2);
-    u32 two[8] = {2, 0, 0, 0, 0, 0, 0, 0};
-    mul_mod(t2, t2, two);
-    sub_mod(x1, x1, t2);
-    if (threadIdx.x == 0) {
-        printf("point_double: After x1 update, x1[0] = %u\n", x1[0]);
-    }
-    
-    // 5. Update y1 = t1 * (x1 * t2 - x1) - t2^2
-    mul_mod(t3, x1, t2);
-    sub_mod(t3, t3, x1);
-    mul_mod(t3, t1, t3);
-    square_mod(t2, t2);
-    sub_mod(y1, t3, t2);
-    if (threadIdx.x == 0) {
-        printf("point_double: After y1 update, y1[0] = %u\n", y1[0]);
-    }
-    
-    // 6. Update z1 = 2 * y1 * z1
-    mul_mod(z1, y1, z1);
-    mul_mod(z1, z1, two);
-    if (threadIdx.x == 0) {
-        printf("point_double: After z1 update, z1[0] = %u\n", z1[0]);
+        printf("point_double: Finished with x1[0] = %u, y1[0] = %u, z1[0] = %u\n", x1[0], y1[0], z1[0]);
     }
 }
 
