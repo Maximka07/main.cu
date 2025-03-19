@@ -25,7 +25,6 @@
 #define SECP256K1_P6 0xFFFFFFFF
 #define SECP256K1_P7 0xFFFFFFFF
 
-#include "secp256k1.h"
 #include <iostream>
 #include <string>
 #include <cuda_runtime.h>
