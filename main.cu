@@ -165,12 +165,22 @@ __device__ void add_mod(u32 *r, const u32 *a, const u32 *b) {
 }
 
 __device__ void sub_mod(u32 *r, const u32 *a, const u32 *b) {
-    const u32 p[8] = {
-        SECP256K1_P0, SECP256K1_P1, SECP256K1_P2, SECP256K1_P3,
-        SECP256K1_P4, SECP256K1_P5, SECP256K1_P6, SECP256K1_P7
-    };
-    u32 c = sub(r, a, b);
-    if (c) add(r, r, p);
+    const u32 p[8] = { SECP256K1_P0, SECP256K1_P1, SECP256K1_P2, SECP256K1_P3, SECP256K1_P4, SECP256K1_P5, SECP256K1_P6, SECP256K1_P7 };
+    u64 borrow = 0;
+    for (int i = 0; i < 8; i++) {
+        borrow += (u64)a[i];
+        borrow -= b[i];
+        r[i] = borrow;
+        borrow = (borrow >> 32) & 1; // Ограничиваем borrow до 0 или 1
+    }
+    if (borrow) { // Если результат отрицательный
+        u64 carry = 0;
+        for (int i = 0; i < 8; i++) {
+            carry += (u64)r[i] + p[i];
+            r[i] = carry;
+            carry >>= 32;
+        }
+    }
 }
 
 // Определение SECP256K1_Q
@@ -238,6 +248,9 @@ __device__ void inverse_mod(u32 *r, const u32 *a) {
             if (s[0] & 1) add(s, s, p);
             for (int i = 0; i < 7; i++) s[i] = (s[i] >> 1) | (s[i + 1] << 31);
             s[7] >>= 1;
+            if (threadIdx.x == 0 && iteration % 100 == 0) {
+                printf("inverse_mod: After u shift, u[0] = %u, s[0] = %u\n", u[0], s[0]);
+            }
         }
         while (!(v[0] & 1)) {
             for (int i = 0; i < 7; i++) v[i] = (v[i] >> 1) | (v[i + 1] << 31);
@@ -245,6 +258,9 @@ __device__ void inverse_mod(u32 *r, const u32 *a) {
             if (t[0] & 1) add(t, t, p);
             for (int i = 0; i < 7; i++) t[i] = (t[i] >> 1) | (t[i + 1] << 31);
             t[7] >>= 1;
+            if (threadIdx.x == 0 && iteration % 100 == 0) {
+                printf("inverse_mod: After v shift, v[0] = %u, t[0] = %u\n", v[0], t[0]);
+            }
         }
         bool u_zero = true, v_zero = true;
         for (int i = 0; i < 8; i++) {
@@ -273,9 +289,15 @@ __device__ void inverse_mod(u32 *r, const u32 *a) {
         if (cmp >= 0) {
             sub_mod(u, u, v);
             sub_mod(s, s, t);
+            if (threadIdx.x == 0 && iteration % 100 == 0) {
+                printf("inverse_mod: After u -= v, u[0] = %u, s[0] = %u\n", u[0], s[0]);
+            }
         } else {
             sub_mod(v, v, u);
             sub_mod(t, t, s);
+            if (threadIdx.x == 0 && iteration % 100 == 0) {
+                printf("inverse_mod: After v -= u, v[0] = %u, t[0] = %u\n", v[0], t[0]);
+            }
         }
         iteration++;
         if (iteration > 10000) {
