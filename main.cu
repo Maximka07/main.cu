@@ -426,85 +426,40 @@ __device__ void point_add(u32 *x1, u32 *y1, u32 *z1, const u32 *x2, const u32 *y
     sub_mod(y1, t3, t1);
 }
 
-__device__ void point_mul_xy(u32 *x1, u32 *y1, const u32 *k, const secp256k1_t *tmps) {
-    u32 z1[8] = {1};
-    for (int i = 0; i < 8; i++) {
-        x1[i] = tmps->xy[0 + i]; // G.x
-        y1[i] = tmps->xy[8 + i]; // G.y
-    }
+__device__ void point_mul_xy(u32 *x1, u32 *y1, const u32 *k) {
+    u32 z1[8] = {1, 0, 0, 0, 0, 0, 0, 0};
     if (threadIdx.x == 0) {
         printf("point_mul_xy: Initialized x1[0] = %u, y1[0] = %u\n", x1[0], y1[0]);
+        printf("point_mul_xy: Private key k[0] = %u, k[7] = %u\n", k[0], k[7]);
     }
-
-    bool started = false;
-    int iteration = 0;
+    int started = 0;
     for (int i = 7; i >= 0; i--) {
-        u32 word = k[i];
-        if (word != 0) {
-            for (int j = 31; j >= 0; j--) {
-                if (started) {
-                    point_double(x1, y1, z1);
+        for (int j = 31; j >= 0; j--) {
+            if (started) point_double(x1, y1, z1);
+            if (k[i] & (1u << j)) {
+                if (started) point_add_xy(x1, y1, z1);
+                else {
+                    started = 1;
                     if (threadIdx.x == 0) {
-                        printf("point_mul_xy: After double (iter %d), x1[0] = %u, y1[0] = %u\n", iteration, x1[0], y1[0]);
+                        printf("point_mul_xy: Started with bit at i=%d, j=%d\n", i, j);
                     }
-                }
-                if (word & (1U << j)) {
-                    if (!started) {
-                        started = true;
-                        if (threadIdx.x == 0) {
-                            printf("point_mul_xy: Started with bit at i=%d, j=%d\n", i, j);
-                        }
-                    } else {
-                        u32 x2[8], y2[8], z2[8] = {1};
-                        for (int m = 0; m < 8; m++) {
-                            x2[m] = tmps->xy[0 + m]; // G.x
-                            y2[m] = tmps->xy[8 + m]; // G.y
-                        }
-                        point_add(x1, y1, z1, x2, y2, z2);
-                        if (threadIdx.x == 0) {
-                            printf("point_mul_xy: After add (iter %d), x1[0] = %u, y1[0] = %u\n", iteration, x1[0], y1[0]);
-                        }
-                    }
-                }
-                iteration++;
-                if (iteration > 300) { // Ограничение для теста
-                    if (threadIdx.x == 0) {
-                        printf("point_mul_xy: Too many iterations, breaking\n");
-                    }
-                    break;
                 }
             }
-            if (iteration > 300) break;
+            if (started && threadIdx.x == 0) {
+                printf("point_mul_xy: After iter (i=%d, j=%d), x1[0] = %u, y1[0] = %u\n", i, j, x1[0], y1[0]);
+            }
         }
     }
-
-    if (!started) {
-        for (int i = 0; i < 8; i++) {
-            x1[i] = 0;
-            y1[i] = 0;
-        }
-        if (threadIdx.x == 0) {
-            printf("point_mul_xy: Key is zero, returning infinity\n");
-        }
-        return;
-    }
-
     if (threadIdx.x == 0) {
         printf("point_mul_xy: Before inverse_mod, z1[0] = %u\n", z1[0]);
     }
-    u32 inv_z[8];
-    inverse_mod(inv_z, z1);
+    inverse_mod(z1, z1);
     if (threadIdx.x == 0) {
-        printf("point_mul_xy: After inverse_mod, inv_z[0] = %u\n", inv_z[0]);
+        printf("point_mul_xy: After inverse_mod, z1[0] = %u\n", z1[0]);
     }
-    mul_mod(x1, x1, inv_z);
-    if (threadIdx.x == 0) {
-        printf("point_mul_xy: After first mul_mod, x1[0] = %u\n", x1[0]);
-    }
-    mul_mod(y1, y1, inv_z);
-    if (threadIdx.x == 0) {
-        printf("point_mul_xy: Final x1[0] = %u, y1[0] = %u\n", x1[0], y1[0]);
-    }
+    mul_mod(y1, y1, z1);
+    square_mod(z1, z1);
+    mul_mod(x1, x1, z1);
 }
 
 __device__ void to_hex_device(const uint8_t *data, size_t len, char *result) {
